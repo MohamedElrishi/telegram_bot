@@ -3,48 +3,81 @@ import os
 import socketserver
 import threading
 import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import yt_dlp
 
-
-# سيرفر وهمي لتشغيل الخدمة على الخطط المجانية
+# سيرفر وهمي لتشغيل الخدمة على Render
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
     handler = http.server.SimpleHTTPRequestHandler
     with socketserver.TCPServer(("", port), handler) as httpd:
         httpd.serve_forever()
 
-
 threading.Thread(target=run_dummy_server, daemon=True).start()
 
 TOKEN = os.environ.get("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
+# قاموس مؤقت لحفظ رابط كل مستخدم
+user_urls = {}
 
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     bot.reply_to(
-        message, "أهلاً بك! أرسل لي أي رابط فيديو وسأقوم بتحميله لك."
+        message, "أهلاً بك! أرسل لي أي رابط فيديو وسأقوم بعرض خيارات الجودة المتاحة لتحميله."
     )
 
-
 @bot.message_handler(func=lambda message: True)
-def download_and_send(message):
+def handle_url(message):
     url = message.text.strip()
     if not url.startswith(("http://", "https://")):
         bot.reply_to(message, "يرجى إرسال رابط صحيح.")
         return
 
-    status_msg = bot.reply_to(message, "⏳ جاري التحميل على السيرفر الخارجي...")
+    # حفظ الرابط الخاص بالمرسل
+    user_urls[message.chat.id] = url
+
+    # إنشاء أزرار الجودات
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("🎬 360p", callback_data="q_360"),
+        InlineKeyboardButton("🎬 480p", callback_data="q_480"),
+        InlineKeyboardButton("🎬 720p", callback_data="q_720")
+    )
+
+    bot.reply_to(message, "اختر الجودة المطلوبة للتحميل:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("q_"))
+def process_download(call):
+    chat_id = call.message.chat.id
+    quality = call.data.split("_")[1] # 360, 480, or 720
+    url = user_urls.get(chat_id)
+
+    if not url:
+        bot.edit_message_text(
+            "❌ انتهت صلاحية الطلب، يرجى إرسال الرابط من جديد.",
+            chat_id=chat_id,
+            message_id=call.message.message_id
+        )
+        return
+
+    bot.edit_message_text(
+        f"⏳ جاري تحميل الفيديو بجودة {quality}p...",
+        chat_id=chat_id,
+        message_id=call.message.message_id
+    )
 
     try:
-        # مسح أي ملف قديم
+        # تنظيف أي ملفات سابقة
         for f in os.listdir("."):
             if f.startswith("video."):
                 os.remove(f)
 
-        # خيارات yt-dlp للتحميل المباشر داخل بايثون
+        # صيغة طلب الجودة المحددة
+        format_str = f"best[height<={quality}][ext=mp4]/best[height<={quality}]"
+
         ydl_opts = {
-            "format": "best[ext=mp4]/best",
+            "format": format_str,
             "outtmpl": "video.%(ext)s",
             "noplaylist": True,
             "quiet": True,
@@ -54,7 +87,6 @@ def download_and_send(message):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
-        # البحث عن الملف المحمل
         downloaded_file = None
         for f in os.listdir("."):
             if f.startswith("video."):
@@ -63,26 +95,25 @@ def download_and_send(message):
 
         if downloaded_file and os.path.exists(downloaded_file):
             bot.edit_message_text(
-                "📤 جاري رفع الفيديو لتيليجرام...",
-                chat_id=status_msg.chat.id,
-                message_id=status_msg.message_id,
+                f"📤 جاري رفع الفيديو (جودة {quality}p) إلى تيليجرام...",
+                chat_id=chat_id,
+                message_id=call.message.message_id
             )
             with open(downloaded_file, "rb") as video:
-                bot.send_video(message.chat.id, video)
+                bot.send_video(chat_id, video)
             os.remove(downloaded_file)
         else:
             bot.edit_message_text(
-                "❌ تعذر تحميل الفيديو، حاول مع رابط آخر.",
-                chat_id=status_msg.chat.id,
-                message_id=status_msg.message_id,
+                "❌ تعذر تحميل الفيديو بهذه الجودة.",
+                chat_id=chat_id,
+                message_id=call.message.message_id
             )
 
     except Exception as e:
         bot.edit_message_text(
             f"❌ حدث خطأ أثناء التحميل: {str(e)}",
-            chat_id=status_msg.chat.id,
-            message_id=status_msg.message_id,
+            chat_id=chat_id,
+            message_id=call.message.message_id
         )
-
 
 bot.polling()
