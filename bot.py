@@ -1,12 +1,21 @@
-import http.server
 import os
+import sys
+import subprocess
+
+# تحديث تلقائي لمكتبة yt-dlp فور تشغيل السيرفر لمعالجة تغييرات تيك توك ويوتيوب
+try:
+    subprocess.run([sys.executable, "-m", "pip", "install", "-U", "yt-dlp"], check=False)
+except Exception:
+    pass
+
+import http.server
 import socketserver
 import threading
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import yt_dlp
 
-# سيرفر وهمي لتشغيل الخدمة مجاناً على Render
+# سيرفر وهمي لتشغيل الخدمة على Render
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
     handler = http.server.SimpleHTTPRequestHandler
@@ -65,17 +74,16 @@ def process_download(call):
     )
 
     try:
-        # تنظيف الملفات السابقة
+        # تنظيف الملفات القديمة
         for f in os.listdir("."):
             if f.startswith("video."):
                 try:
                     os.remove(f)
-                except:
+                except Exception:
                     pass
 
         format_str = f"best[height<={quality}][ext=mp4]/best[height<={quality}]/best"
 
-        # إعدادات لتجاوز الحظر والتعرف كـ هاتف
         ydl_opts = {
             "format": format_str,
             "outtmpl": "video.%(ext)s",
@@ -84,11 +92,12 @@ def process_download(call):
             "no_warnings": True,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["ios", "android", "mweb"]
+                    "player_client": ["android", "ios", "web_creator", "mweb"]
                 }
             },
             "http_headers": {
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
             }
         }
 
