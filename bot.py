@@ -6,6 +6,7 @@ import threading
 import telebot
 
 
+# سيرفر وهمي لتشغيل الخدمة على الخطط المجانية
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
         handler = http.server.SimpleHTTPRequestHandler
